@@ -1,3 +1,37 @@
+local function registerSzCoreCallback(name, fn)
+    CreateThread(function()
+        local deadline = GetGameTimer() + 15000
+
+        while GetGameTimer() < deadline do
+            if GetResourceState('szcore') == 'started' then
+                local ok, success, err = pcall(function()
+                    return registerSzCoreCallback(name, fn)
+                end)
+
+                if ok and success ~= false then
+                    return
+                end
+
+                if ok and success == false then
+                    print(('[%s] SzCore callback registration rejected: %s (%s)'):format(
+                        GetCurrentResourceName(),
+                        tostring(name),
+                        tostring(err)
+                    ))
+                    return
+                end
+            end
+
+            Wait(100)
+        end
+
+        print(('[%s] SzCore callback registration timed out: %s'):format(
+            GetCurrentResourceName(),
+            tostring(name)
+        ))
+    end)
+end
+
 local sessionKeys={};local rate={};local initialized={};local policeAlertRate={}
 local function trim(s)return type(s)=='string'and s:gsub('^%s*(.-)%s*$','%1')or''end
 local function player(src)return exports.szcore:GetPlayer(src)end
@@ -61,27 +95,27 @@ local function alertPolice(source,entity,action)
     local c=GetEntityCoords(entity);local plate=trim(GetVehicleNumberPlateText(entity))
     for _,sid in ipairs(exports.szcore:GetPlayerSourcesByJob('police',true))do TriggerClientEvent('szcore_vehiclekeys:policeAlert',sid,{x=c.x,y=c.y,z=c.z,plate=plate,action=action})end
 end
-exports.szcore:CreateCallback('szcore_vehiclekeys:has',function(source,netId)
+registerSzCoreCallback('szcore_vehiclekeys:has',function(source,netId)
     local entity=NetworkGetEntityFromNetworkId(tonumber(netId)or 0);if entity==0 then return false end;return has(source,GetVehicleNumberPlateText(entity),netId)
 end)
-exports.szcore:CreateCallback('szcore_vehiclekeys:toggle',function(source,netId,locked)
+registerSzCoreCallback('szcore_vehiclekeys:toggle',function(source,netId,locked)
     if not allow(source,'toggle',300)then return false,'rate_limited'end
     local entity=NetworkGetEntityFromNetworkId(tonumber(netId)or 0);if not nearEntity(source,entity,SzCoreVehicleKeysConfig.maxLockDistance)then return false,'too_far'end
     local plate=trim(GetVehicleNumberPlateText(entity));if not has(source,plate,netId)then return false,'no_key'end
     SetVehicleDoorsLocked(entity,locked and 2 or 1);Entity(entity).state:set('szcoreLocked',locked==true,true);return true
 end)
-exports.szcore:CreateCallback('szcore_vehiclekeys:engine',function(source,netId)
+registerSzCoreCallback('szcore_vehiclekeys:engine',function(source,netId)
     local entity=NetworkGetEntityFromNetworkId(tonumber(netId)or 0);if not nearEntity(source,entity,8.0)then return false,'too_far'end
     if GetPedInVehicleSeat(entity,-1)~=GetPlayerPed(source)then return false,'not_driver'end
     return has(source,GetVehicleNumberPlateText(entity),netId),'no_key'
 end)
-exports.szcore:CreateCallback('szcore_vehiclekeys:initWorld',function(source,netId)
+registerSzCoreCallback('szcore_vehiclekeys:initWorld',function(source,netId)
     local entity=NetworkGetEntityFromNetworkId(tonumber(netId)or 0);if not nearEntity(source,entity,12.0)then return nil end
     local n=tonumber(netId);if initialized[n]~=nil then return initialized[n]end
     local persistent=Entity(entity).state.szcoreVehicleId;if persistent then initialized[n]=GetVehicleDoorLockStatus(entity)==2;return initialized[n]end
     local locked=math.random()<SzCoreVehicleKeysConfig.randomWorldLockChance;initialized[n]=locked;SetVehicleDoorsLocked(entity,locked and 2 or 1);Entity(entity).state:set('szcoreLocked',locked,true);return locked
 end)
-exports.szcore:CreateCallback('szcore_vehiclekeys:criminal',function(source,netId,action,advanced)
+registerSzCoreCallback('szcore_vehiclekeys:criminal',function(source,netId,action,advanced)
     local actions={hotwire=true,search=true,lockpick=true,carjack=true,running=true};if not actions[action] then return false,'invalid_action' end
     if not allow(source,'criminal',1200)then return false,'cooldown'end
     local entity=NetworkGetEntityFromNetworkId(tonumber(netId)or 0);if not nearEntity(source,entity,8.0)then return false,'too_far'end
